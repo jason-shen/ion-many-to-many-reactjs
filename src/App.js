@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Client, LocalStream } from 'ion-sdk-js';
 import { IonSFUJSONRPCSignal } from 'ion-sdk-js/lib/signal/json-rpc-impl';
+import { Widget, addResponseMessage } from 'react-chat-widget';
+import 'react-chat-widget/lib/styles.css';
 
-let client, signal;
+let signalLocal, signalRemote, clientLocal, clientRemote ;
 
 const App = () => {
   const [remoteStream, setRemoteStream] = useState([]);
@@ -10,6 +12,7 @@ const App = () => {
   const [pubShow, setPubShow] = useState('hidden');
   const pubVideo = useRef();
   const remoteVideoRef =useRef([]);
+  const datachannel = useRef();
   // const subVideo = useRef();
 
   const config = {
@@ -29,12 +32,15 @@ const App = () => {
   // }
 
   useEffect(() => {
-    signal = new IonSFUJSONRPCSignal("ws://localhost:7000/ws");
-    client = new Client(signal, config);
-    signal.onopen = () => client.join("test room");
+    signalLocal = new IonSFUJSONRPCSignal("ws://localhost:7000/ws");
+    signalRemote = new IonSFUJSONRPCSignal("ws://localhost:7000/ws");
+    clientLocal = new Client(signalLocal, config);
+    clientRemote = new Client(signalRemote, config);
+    signalLocal.onopen = () => clientLocal.join("test room");
+    signalRemote.onopen = () => clientRemote.join("test room");
 
     // if (!isPub) {
-      client.ontrack = (track, stream) => {
+      clientLocal.ontrack = (track, stream) => {
         console.log("got track: ", track.id, "for stream: ", stream.id);
         if (track.kind === 'video') {
           track.onunmute = () => {
@@ -49,6 +55,11 @@ const App = () => {
             setRemoteStream(remoteStream => remoteStream.filter(item => item.id !== e.track.id));
           }
         }
+        }
+      }
+      clientRemote.ondatachannel = ({channel}) => {
+        channel.onmessage = ({data}) => {
+          addResponseMessage(data);
         }
       }
    // }
@@ -76,8 +87,9 @@ const App = () => {
       pubVideo.current.controls = true;
       pubVideo.current.muted = true;
       setPubShow('block');
-      client.publish(media);
+      clientLocal.publish(media);
       }).catch(console.error);
+      datachannel.current = clientLocal.createDataChannel("data");
     } else {
       LocalStream.getDisplayMedia({
         resolution: 'vga',
@@ -90,8 +102,22 @@ const App = () => {
       pubVideo.current.controls = true;
       pubVideo.current.muted = true;
       setPubShow('block');
-      client.publish(media);
+      clientLocal.publish(media);
       }).catch(console.error);
+      datachannel.current = clientLocal.createDataChannel("data");
+    }
+  }
+
+  /// handle new message
+  const handleNewUserMessage = (newMessage) => {
+    console.log('new message', newMessage);
+    send(newMessage);
+  }
+
+  // send message into the datachannel
+  const send = (message) => {
+    if (datachannel.current.readyState === 'open') {
+      datachannel.current.send(message);
     }
   }
 
@@ -112,6 +138,9 @@ const App = () => {
         )
       })}
       </div>
+      <Widget
+          handleNewUserMessage={handleNewUserMessage}
+      />
     </div>
   );
 }
